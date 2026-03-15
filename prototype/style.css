@@ -1,0 +1,198 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  display: flex;
+  justify-content: center;
+  padding: 2rem;
+  min-height: 100vh;
+}
+
+#app {
+  max-width: 900px;
+  width: 100%;
+}
+
+h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+h2 { font-size: 1.15rem; margin-bottom: 0.5rem; color: #ccc; }
+p { line-height: 1.5; margin-bottom: 0.5rem; }
+ol { margin-left: 1.5rem; margin-bottom: 1rem; line-height: 1.6; }
+
+/* --- Grid --- */
+
+.grid-container {
+  display: inline-block;
+  border: 2px solid #555;
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 0.5rem 0;
+}
+
+.grid-row { display: flex; }
+
+.grid-cell {
+  width: 40px;
+  height: 40px;
+  border: 1px solid #333;
+}
+
+.grid-cell.editable {
+  cursor: crosshair;
+  border-color: #555;
+}
+
+.grid-cell.editable:hover {
+  opacity: 0.75;
+  outline: 2px solid #fff8;
+  outline-offset: -2px;
+}
+
+/* ARC color palette */
+.color-0 { background: #000; }
+.color-1 { background: #0074D9; }
+.color-2 { background: #FF4136; }
+.color-3 { background: #2ECC40; }
+.color-4 { background: #FFDC00; }
+.color-5 { background: #AAAAAA; }
+.color-6 { background: #F012BE; }
+.color-7 { background: #FF851B; }
+.color-8 { background: #7FDBFF; }
+.color-9 { background: #870C25; }
+
+/* --- Color picker --- */
+
+.color-picker {
+  display: flex;
+  gap: 4px;
+  margin: 0.5rem 0;
+}
+
+.color-swatch {
+  width: 32px;
+  height: 32px;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: border-color 0.1s;
+}
+
+.color-swatch:hover { border-color: #fff8; }
+.color-swatch.selected { border-color: #fff; box-shadow: 0 0 6px #fff4; }
+
+/* --- Training pairs --- */
+
+.training-pair {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.arrow { font-size: 2rem; color: #666; }
+
+/* --- Test area --- */
+
+.test-area {
+  display: flex;
+  gap: 2rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.test-input-section label,
+.test-response-section label {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: #999;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* --- Buttons --- */
+
+button {
+  background: #0074D9;
+  color: white;
+  border: none;
+  padding: 0.7rem 1.4rem;
+  border-radius: 6px;
+  font-size: 1rem;
+  cursor: pointer;
+  margin: 0.75rem 0.25rem 0.75rem 0;
+  transition: background 0.15s;
+}
+
+button:hover { background: #005fa3; }
+button:active { background: #004a80; }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+button.secondary { background: #444; }
+button.secondary:hover { background: #555; }
+
+/* --- Feedback --- */
+
+.feedback {
+  padding: 1rem 1.25rem;
+  border-radius: 8px;
+  margin: 1rem 0;
+  font-size: 1.05rem;
+  font-weight: 500;
+}
+
+.feedback.correct {
+  background: #2ECC4020;
+  border: 1px solid #2ECC40;
+  color: #2ECC40;
+}
+
+.feedback.incorrect {
+  background: #FF413620;
+  border: 1px solid #FF4136;
+  color: #FF8A84;
+}
+
+/* --- State badge --- */
+
+.state-badge {
+  background: #2a2a3e;
+  border: 1px solid #444;
+  padding: 0.3rem 0.65rem;
+  border-radius: 4px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.8rem;
+  color: #8888bb;
+  margin-bottom: 1rem;
+  display: inline-block;
+}
+
+/* --- Results table --- */
+
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+}
+
+.results-table th,
+.results-table td {
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #333;
+}
+
+.results-table th {
+  color: #888;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.results-table td.correct { color: #2ECC40; }
+.results-table td.incorrect { color: #FF4136; }
+
+/* --- Misc --- */
+
+section { margin-bottom: 2rem; }
+.task-name { color: #aaa; font-style: italic; margin-bottom: 0.5rem; }
