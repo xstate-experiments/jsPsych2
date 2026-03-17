@@ -7,7 +7,7 @@ export default defineConfig({
     starlight({
       title: 'jsPsych2',
       description: 'Behavioral experiments as statecharts',
-      social: [{ icon: 'github', label: 'GitHub', link: 'https://github.com/xstate-experiments/jsPsych2' }],
+      social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/xstate-experiments/jsPsych2' }],
       sidebar: [
         { label: 'Getting Started', slug: 'getting-started' },
         {

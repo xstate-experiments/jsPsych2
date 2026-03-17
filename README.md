@@ -6,267 +6,177 @@ jsPsych2 reimagines the online experiment paradigm using [XState v5](https://sta
 
 ---
 
+## Quick start
+
+```bash
+# Clone and install
+git clone https://github.com/xstate-experiments/jsPsych2.git
+cd jsPsych2
+pnpm install
+
+# Run tests (107 tests across all packages)
+pnpm test
+
+# Run an example with Vite dev server
+pnpm --filter @xstate-experiments/example-bandit-2arm dev
+
+# Build the core library
+pnpm --filter @xstate-experiments/core build
+```
+
+## Project structure
+
+```
+jsPsych2/
+├── packages/
+│   ├── core/                     # @xstate-experiments/core
+│   │   └── src/
+│   │       ├── machines/         # experiment, block, trial factories
+│   │       ├── actors/           # timing, keyboard, data collection
+│   │       └── utils.ts          # scoring, randomization, guard helpers
+│   ├── plugin-html-keyboard/     # HTML stimulus + keyboard response
+│   ├── plugin-canvas/            # Canvas-based stimulus + response
+│   ├── plugin-survey/            # Survey/questionnaire trials
+│   └── plugin-instructions/      # Multi-page instruction display
+├── examples/
+│   ├── arc-grid/                 # ARC pattern puzzles (original prototype)
+│   ├── bandit-2arm/              # Two-armed bandit (Rescorla-Wagner)
+│   ├── go-nogo/                  # Pavlovian Go/No-Go (response inhibition)
+│   ├── reversal-learning/        # 3-arm bandit with mid-task reversal
+│   └── two-step/                 # Daw et al. two-stage decision task
+├── docs/                         # Starlight documentation site
+└── .github/workflows/            # CI: test, docs deploy, npm release
+```
+
 ## Why this exists
 
-[jsPsych](https://www.jspsych.org/) is the dominant framework for browser-based behavioral experiments. It works. But its architecture — a linear timeline of trial objects configured with callbacks — creates real problems as experiments grow in complexity:
+[jsPsych](https://www.jspsych.org/) is the dominant framework for browser-based behavioral experiments. But its architecture — a linear timeline of trial objects configured with callbacks — creates problems as experiments grow:
 
 | Problem | jsPsych v7/v8 | jsPsych2 (XState) |
 |---|---|---|
-| **Flat timeline** — no hierarchy | Trials are a flat array; blocks/phases simulated with nested timelines or `conditional_function` | Nested statecharts: experiment > block > trial > phase |
-| **One-shot conditionals** | `conditional_function` evaluates once at timeline parse time | Guards evaluate on every transition attempt — adaptive experiments are native |
-| **Imperative side effects** | `on_start`, `on_finish`, `on_load` callbacks wired manually | `entry` / `exit` actions on states — side effects are structural |
-| **No concurrency** | Cannot run parallel processes (e.g. a timing monitor alongside a trial) | Parallel states and background actors |
-| **Opaque configuration** | Trial objects only make sense inside jsPsych's runtime | Machine definitions are JSON — visualize, validate, transform, share |
-| **Hard to test** | Need a browser, DOM, simulated keypresses | Send `{ type: 'SUBMIT_GRID', grid }` events, assert state transitions — no browser needed |
-| **Plugin model** | Classes with lifecycle methods (`trial`, `on_finish`, `simulate`) | Actors that accept parameters and emit results |
-
-### The deeper issue
-
-jsPsych plugins *are* state machines — they just implement the pattern ad-hoc with instance variables, lifecycle hooks, and implicit state. Every plugin independently reinvents:
-
-- State tracking (what phase of the trial are we in?)
-- Transition logic (when do we advance? retry? skip?)
-- Side-effect management (when to start/stop timers, show/hide stimuli)
-- Data collection (what to record, when)
-
-XState makes these patterns explicit, composable, and formally verifiable.
-
----
-
-## The ARC connection
-
-The [ARC (Abstraction and Reasoning Corpus)](https://arcprize.org/) testing interface — both Chollet's original vanilla JS implementation and modern React-based tools like [arc-explainer](https://github.com/fchollet/ARC-AGI) — is a behavioral experiment framework in disguise:
-
-1. **Show training examples** (stimulus presentation)
-2. **Present test input** (trial)
-3. **Collect grid response** (response collection)
-4. **Evaluate cell-by-cell** (scoring)
-5. **Advance or retry** (conditional progression, max 3 attempts)
-
-This *is* the jsPsych trial loop. But the ARC implementations do it with either global variables + DOM sync (Chollet) or React state + effects (arc-explainer). Neither uses the abstraction that would make the paradigm composable: a formal state machine.
-
-The [prototype](./prototype/) in this repo reimplements an ARC-style grid task using XState, proving the concept works.
-
----
+| **Flat timeline** | Blocks/phases simulated with nested timelines | Nested statecharts: experiment > block > trial > phase |
+| **One-shot conditionals** | `conditional_function` evaluates once at parse time | Guards evaluate on every transition attempt |
+| **Imperative side effects** | `on_start`, `on_finish`, `on_load` callbacks | `entry` / `exit` actions on states |
+| **No concurrency** | Cannot run parallel processes | Parallel states and background actors |
+| **Opaque configuration** | Trial objects only make sense inside jsPsych | Machine definitions are JSON — visualize, validate, share |
+| **Hard to test** | Need a browser, DOM, simulated keypresses | Send events, assert state transitions — no browser needed |
 
 ## Architecture
-
-### Statechart model
 
 ```
 experiment (top-level machine)
 ├── instructions
-├── runningTrials
+├── running
 │   ├── active
-│   │   └── invoke trialMachine(task[i])
-│   │       ├── showTraining
-│   │       ├── testPresentation
-│   │       ├── responseCollection
-│   │       ├── evaluation
-│   │       ├── feedback
-│   │       │   ├── [correct] → done
-│   │       │   ├── [wrong, attempts < 3] → responseCollection
-│   │       │   └── [wrong, attempts >= 3] → done
-│   │       └── done (final, emits output)
+│   │   └── invoke trialMachine(trials[i])
+│   │       ├── fixation (500ms)
+│   │       ├── stimulus (await response)
+│   │       ├── feedback (1000ms)
+│   │       └── done (emits output)
 │   └── checkNext
-│       ├── [more tasks] → active (new trial actor)
-│       └── [no more] → results
+│       ├── [more trials] → active
+│       └── [done] → results
 └── results (final)
 ```
 
-### Key XState features used
+Each trial is an **invoked actor** — it receives input, runs through its states, and emits structured output. The experiment machine collects these outputs and manages the sequence.
 
-1. **Hierarchical states** — experiment > runningTrials > active > trial phases. jsPsych's flat timeline cannot express this without callbacks.
+## Example: Two-armed bandit
 
-2. **Invoked actors** — each trial is an actor that accepts `{ task, taskIndex }` as input and emits `{ correct, accuracy, attempts, rt }` as output. This is what jsPsych plugins *want to be*.
+```typescript
+import { setup, assign } from 'xstate';
 
-3. **Guards** — `isCorrect` and `canRetry` evaluate on every transition. Unlike jsPsych's `conditional_function`, guards are checked dynamically.
-
-4. **Entry/exit actions** — `recordResponseStart`, `recordSubmission`, `evaluate` are `entry` actions on their respective states. No callback registration needed.
-
-5. **Delayed transitions** — the feedback state uses `after: { 1500: [...] }` for timed auto-advance.
-
-6. **Serializable definitions** — the machine config is JSON. Paste it into [stately.ai/viz](https://stately.ai/viz) to see the statechart diagram.
-
-### What XState handles vs. what you pair it with
-
-| Concern | XState? | Recommended pairing |
-|---|---|---|
-| Experiment flow / logic | **Yes** | — |
-| State management | **Yes** | — |
-| Stimulus rendering | No | PixiJS (timing-critical) or Lit (surveys/forms) |
-| Precise timing | No | `performance.now()` + `requestAnimationFrame` |
-| UI components | No | Lit web components (framework-agnostic trial types) |
-| Reactive UI binding | Partial | Preact Signals or Solid.js for fine-grained reactivity |
-
----
-
-## The prototype
-
-[`prototype/`](./prototype/) contains a zero-build-step proof-of-concept: 3 ARC-style grid puzzles running on an XState statechart with vanilla DOM rendering.
-
-### Running it
-
-```bash
-cd prototype
-# Any static file server works:
-npx serve .
-# or: python3 -m http.server
-# or: php -S localhost:8000
-```
-
-Open `http://localhost:3000` (or whichever port) in a modern browser.
-
-### What it demonstrates
-
-- **Nested machines**: experiment machine invokes trial actors
-- **Guards on every attempt**: submit wrong → retry (up to 3x), submit correct → advance
-- **Entry actions for timing**: `performance.now()` timestamps set automatically on state entry
-- **Inspect in console**: state transitions logged; `window.__experimentActor` exposed for debugging
-- **No framework**: vanilla DOM proves the state layer is the real contribution
-
-### File structure
-
-```
-prototype/
-├── index.html          # Entry point, ESM module loader
-├── experiment.js       # Experiment machine + DOM rendering
-├── trial.js            # Trial actor machine (the core)
-├── grid.js             # Grid renderer + editor (pure DOM)
-├── tasks.json          # 3 ARC-format task definitions
-└── style.css           # Grid colors, layout
-```
-
----
-
-## What jsPsych looks like on XState
-
-**jsPsych v8:**
-```js
-const trial = {
-  type: jsPsychHtmlKeyboardResponse,
-  stimulus: '<p>Press F or J</p>',
-  choices: ['f', 'j'],
-  on_finish: (data) => {
-    data.correct = jsPsych.evaluateTimelineVariable('correct_response') === data.response;
-  }
-};
-jsPsych.run([fixation, trial, feedback]);
-```
-
-**jsPsych2:**
-```js
-const trialMachine = setup({
-  guards: { validKey: ({ event }) => ['f', 'j'].includes(event.key) },
-  actions: {
-    recordResponse: assign({
-      response: ({ event }) => event.key,
-      rt: ({ context }) => performance.now() - context.stimulusOnset,
-      correct: ({ context, event }) => event.key === context.correctResponse
-    })
-  }
-}).createMachine({
-  id: 'trial',
-  initial: 'fixation',
-  context: ({ input }) => ({
-    stimulus: input.stimulus,
-    correctResponse: input.correctResponse,
-    response: null, rt: null, correct: null,
-    stimulusOnset: null
-  }),
-  states: {
-    fixation: {
-      after: { 500: 'stimulus' }
-    },
-    stimulus: {
-      entry: assign({ stimulusOnset: () => performance.now() }),
-      on: {
-        KEYPRESS: {
-          target: 'feedback',
-          guard: 'validKey',
-          actions: 'recordResponse'
-        }
-      }
-    },
-    feedback: {
-      after: { 1000: 'done' }
-    },
-    done: { type: 'final' }
+const banditTrialMachine = setup({
+  types: {} as {
+    context: { chosenArm: 0 | 1 | null; reward: 0 | 1 | null; rt: number | null; /* ... */ };
+    events: { type: 'CHOOSE'; arm: 0 | 1 };
   },
-  output: ({ context }) => ({
-    response: context.response,
-    rt: context.rt,
-    correct: context.correct
-  })
+  actions: {
+    processChoice: assign(({ context, event }) => {
+      const reward = Math.random() < context.rewardProbabilities[event.arm] ? 1 : 0;
+      const newQ = [...context.qValues] as [number, number];
+      newQ[event.arm] += context.alpha * (reward - newQ[event.arm]); // Rescorla-Wagner
+      return { chosenArm: event.arm, reward, rt: performance.now() - context.stimulusOnsetTime!, updatedQValues: newQ };
+    }),
+  },
+}).createMachine({
+  id: 'banditTrial',
+  initial: 'fixation',
+  states: {
+    fixation: { after: { 500: 'stimulus' } },
+    stimulus: { on: { CHOOSE: { target: 'feedback', actions: 'processChoice' } } },
+    feedback: { after: { 1500: 'done' } },
+    done: { type: 'final' },
+  },
 });
 ```
 
-The second version is longer, but it is a **complete, testable, serializable specification** — not a configuration object that only makes sense inside a runtime.
+## Core library (`@xstate-experiments/core`)
 
----
+### Machine factories
+- `createExperimentMachine(config)` — instructions → blocks → results
+- `createBlockMachine(config)` — trial iteration with aggregate metrics
+- `createTrialMachine(config)` — fixation → stimulus → response → feedback → done
 
-## Roadmap
+### Built-in actors
+- **Data actor** — buffers trial outputs, auto-flushes to endpoint, exports CSV/JSON
+- **Timing actor** — rAF loop, detects frame drops, sends `TIMING.FRAME_DROP` events
+- **Keyboard actor** — wraps keydown with valid-key filtering
+- **Mouse actor** — click events with coordinates and timestamp
 
-### Phase 1: Prototype (current)
-- [x] ARC grid task on XState — proves the paradigm
-- [x] Invoked trial actors with guard-based retry logic
-- [x] `performance.now()` timing via entry actions
-- [x] Console-inspectable state transitions
+### Utilities
+- `evaluateGrid(submitted, expected)` / `evaluateResponse(submitted, expected)` — scoring
+- `shuffle()`, `latinSquare()`, `counterbalance()`, `randomize()` — trial ordering
+- `afterNCorrect(n)`, `afterNTrials(n)`, `staircaseRule(up, down)` — guard helpers
 
-### Phase 2: Core library
-- [ ] Generic `experimentMachine` factory with block/trial/phase hierarchy
-- [ ] Built-in timing actor (parallel state, rAF-coordinated)
-- [ ] Data collection actor (streams results, handles persistence)
-- [ ] Keyboard/mouse/touch input actors
-- [ ] Headless test runner — send events, assert transitions, no browser
+## Examples
 
-### Phase 3: Trial type library
-- [ ] Keyboard response (the "hello world" of experiment frameworks)
-- [ ] Image/video stimulus with preloading actor
-- [ ] Survey/form trials (Lit web components)
-- [ ] Canvas-based stimulus (PixiJS integration for timing-critical display)
-- [ ] Audio playback with Web Audio API timing
+Each example is a standalone experiment with machine definition, DOM renderer, config, and headless tests:
 
-### Phase 4: Tooling
-- [ ] Visual experiment builder (Stately editor integration or custom)
-- [ ] JSON experiment import/export
-- [ ] jsPsych v8 migration tool (convert timeline → statechart)
-- [ ] Pavlovia/JATOS deployment adapters
-- [ ] Real-time data dashboard (WebSocket actor)
+| Example | Trials | What it demonstrates |
+|---|---|---|
+| **bandit-2arm** | 80 | Rescorla-Wagner Q-learning, simplest RL task |
+| **go-nogo** | 100 | Response deadlines, trial-type guards, inhibition metrics |
+| **reversal-learning** | 120 | Mid-task contingency change, guard-based probability switching |
+| **two-step** | 200 | Hierarchical actors (stage1 invokes stage2), drifting rewards |
+| **arc-grid** | 3 | Grid editing, retry logic, cell-by-cell evaluation |
 
-### Phase 5: Advanced paradigms
-- [ ] Adaptive staircase procedures (guards + context)
-- [ ] EEG/fNIRS marker integration (parallel timing actor)
-- [ ] Multi-participant experiments (networked actors)
-- [ ] VR stimulus presentation (WebXR + actor model)
+Run any example: `pnpm --filter @xstate-experiments/example-bandit-2arm dev`
 
----
+## Testing
+
+All experiment logic runs headlessly — no browser needed:
+
+```bash
+pnpm test                    # Run all 107 tests via turborepo
+pnpm --filter @xstate-experiments/core test          # Core only (44 tests)
+pnpm --filter @xstate-experiments/example-two-step test  # Single example
+```
+
+## Documentation
+
+Full Starlight docs site with getting-started guide, core concepts (statecharts, actors, guards, actions), migration guide from jsPsych, and annotated example walkthroughs.
+
+```bash
+pnpm --filter @xstate-experiments/docs dev    # Local dev server
+pnpm --filter @xstate-experiments/docs build  # Production build
+```
 
 ## Design principles
 
-1. **Statecharts are the experiment definition.** The machine config is the source of truth — not a wrapper around it.
-
-2. **Actors are the plugin model.** Each trial type is an actor that accepts input and emits output. No class hierarchies, no lifecycle methods.
-
-3. **Guards are adaptive logic.** Staircase procedures, conditional branching, stopping rules — all expressed as guards on transitions.
-
-4. **Side effects are structural.** Stimulus onset, data recording, timing marks — these are `entry`/`exit` actions, not imperative callbacks.
-
-5. **Test without a browser.** If you can't test it by sending events and asserting transitions, the abstraction is wrong.
-
-6. **Framework-agnostic rendering.** The state layer doesn't care if you render with React, Lit, vanilla DOM, or PixiJS. Rendering is a subscriber to the actor, not part of the machine.
-
----
+1. **Statecharts are the experiment definition.** The machine config is the source of truth.
+2. **Actors are the plugin model.** Each trial type accepts input and emits output. No class hierarchies.
+3. **Guards are adaptive logic.** Staircases, conditional branching, stopping rules — all guards on transitions.
+4. **Side effects are structural.** Stimulus onset, data recording, timing — `entry`/`exit` actions, not callbacks.
+5. **Test without a browser.** Send events, assert transitions. If you can't test it headlessly, the abstraction is wrong.
+6. **Framework-agnostic rendering.** State layer doesn't care if you render with React, Lit, vanilla DOM, or PixiJS.
 
 ## Background reading
 
-- [Harel, D. (1987). Statecharts: A visual formalism for complex systems.](https://www.sciencedirect.com/science/article/pii/0167642387900359) — The original statechart paper
-- [XState v5 documentation](https://stately.ai/docs/xstate) — The runtime this project builds on
-- [de Leeuw, J.R. (2015). jsPsych: A JavaScript library for creating behavioral experiments in a Web browser.](https://link.springer.com/article/10.3758/s13428-014-0458-y) — The framework we're reimagining
-- [Chollet, F. (2019). On the Measure of Intelligence.](https://arxiv.org/abs/1911.01547) — ARC and the abstraction/reasoning challenge
-- [Hewitt, C. (1973). A Universal Modular ACTOR Formalism for Artificial Intelligence.](https://www.ijcai.org/Proceedings/73/Papers/027B.pdf) — The actor model
-
----
+- [Harel, D. (1987). Statecharts: A visual formalism for complex systems.](https://www.sciencedirect.com/science/article/pii/0167642387900359)
+- [XState v5 documentation](https://stately.ai/docs/xstate)
+- [de Leeuw, J.R. (2015). jsPsych: A JavaScript library for creating behavioral experiments in a Web browser.](https://link.springer.com/article/10.3758/s13428-014-0458-y)
+- [Daw, N.D. et al. (2011). Model-based influences on humans' choices and striatal prediction errors. Neuron, 69(6).](https://doi.org/10.1016/j.neuron.2011.02.027)
 
 ## License
 

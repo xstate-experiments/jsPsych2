@@ -7,3 +7,5 @@ dist/
 .env.*
 coverage/
 *.log
+docs/.astro/
+.pnpmrc.json
