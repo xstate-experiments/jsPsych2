@@ -2,13 +2,13 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
 export default defineConfig({
-  site: 'https://xstate-experiments.github.io',
-  base: '/jsPsych2',
+  site: 'https://m9h.github.io',
+  base: '/xstate-experiments',
   integrations: [
     starlight({
       title: 'jsPsych2',
       description: 'Behavioral experiments as statecharts',
-      social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/xstate-experiments/jsPsych2' }],
+      social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/m9h/xstate-experiments' }],
       sidebar: [
         { label: 'Getting Started', slug: 'getting-started' },
         {
